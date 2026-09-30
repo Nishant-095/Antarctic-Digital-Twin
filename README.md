@@ -13,6 +13,77 @@
 
 ---
 
+## ⚡ Quick Setup In One Go (Choose Your OS)
+
+Copy and paste the single command block below into your terminal. It will clone the repository, create a virtual environment, install all Python & Node dependencies, run database migrations, seed initial Antarctic stations & sensor telemetry, and launch both backend and frontend servers.
+
+---
+
+### 🪟 Windows (In One Go)
+
+#### Option 1: PowerShell Command (Copy & Paste Entire Block)
+Open **PowerShell** and run:
+
+```powershell
+git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git; cd Antarctic-Digital-Twin; python -m venv backend\venv; .\backend\venv\Scripts\python.exe -m pip install --upgrade pip; .\backend\venv\Scripts\python.exe -m pip install -r backend\requirements.txt; .\backend\venv\Scripts\python.exe backend\manage.py migrate; .\backend\venv\Scripts\python.exe backend\manage.py seed_stations; cd frontend; npm install; cd ..; Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD\backend'; .\venv\Scripts\activate; daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application"; Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD\frontend'; npm run dev"; Start-Sleep -Seconds 3; Start-Process "http://localhost:5173"
+```
+
+#### Option 2: Command Prompt / One-Click Launcher
+Open **Command Prompt (`cmd.exe`)** and run:
+
+```cmd
+git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && start_platform.bat
+```
+
+---
+
+### 🍎 macOS (In One Go)
+
+#### Option 1: Terminal / Zsh Command (Copy & Paste Entire Block)
+Open **Terminal** and run:
+
+```bash
+git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && python3 -m venv backend/venv && source backend/venv/bin/activate && pip install --upgrade pip && pip install -r backend/requirements.txt && cd backend && python manage.py migrate && python manage.py seed_stations && cd ../frontend && npm install && cd .. && (daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application &) && (cd frontend && npm run dev &) && sleep 3 && open "http://localhost:5173"
+```
+
+#### Option 2: Self-Contained Bash Launcher
+```bash
+git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && chmod +x start_platform.sh && ./start_platform.sh
+```
+
+---
+
+### 🐧 Linux (In One Go)
+
+#### Ubuntu / Debian (Copy & Paste Entire Block)
+Open your terminal and run:
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv nodejs npm git && git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && python3 -m venv backend/venv && source backend/venv/bin/activate && pip install --upgrade pip && pip install -r backend/requirements.txt && cd backend && python manage.py migrate && python manage.py seed_stations && cd ../frontend && npm install && cd .. && (daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application &) && (cd frontend && npm run dev &) && sleep 3 && (xdg-open "http://localhost:5173" 2>/dev/null || true)
+```
+
+#### Fedora / RHEL
+```bash
+sudo dnf install -y python3 python3-pip python3-virtualenv nodejs npm git gcc && git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && chmod +x start_platform.sh && ./start_platform.sh
+```
+
+#### Arch Linux
+```bash
+sudo pacman -Syu --needed python python-pip python-virtualenv nodejs npm git base-devel && git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && chmod +x start_platform.sh && ./start_platform.sh
+```
+
+---
+
+### 🐳 Universal Docker Setup (All Operating Systems)
+
+If you have Docker Desktop or Docker Engine installed, launch the entire ecosystem in one go:
+
+```bash
+git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git && cd Antarctic-Digital-Twin && docker-compose up --build
+```
+
+---
+
 ## 🛰️ Platform Overview
 
 A mission-critical, production-ready **3D Digital Twin and SCADA Remote Management Platform** engineered for real-time surveillance, thermodynamic modeling, microgrid dispatch, battery energy storage systems (BESS), and emergency incident handling for India's scientific expedition stations in Antarctica:
@@ -24,7 +95,7 @@ Built to the highest industrial aerospace & grid operations standard:
 - **Sub-Second Telemetry Streaming**: Django Channels + Daphne ASGI streaming real-time sensor ticks every 2.0 seconds over WebSockets.
 - **Full Procedural 3D Digital Twin**: Dynamic Three.js rendering of physical layouts, pipelines, generator bays, aerodynamic stilts, and interactive diagnostic markers.
 - **Embedded Polar AI/ML Diagnostics**: Unsupervised 8-dimensional Isolation Forest anomaly scoring and Ridge Polar regression fuel consumption horizons.
-- **Automated SOP Execution**: Telecommand fail-safe dispatch to restore nominal operations upon subsystem trip or freeze incidents.
+- **Automated SOP Execution**: Telecommand fail-safe dispatch to restore nominal operations upon subsystem trip or freeze incidents in < 200 ms.
 
 ---
 
@@ -79,226 +150,75 @@ Built to the highest industrial aerospace & grid operations standard:
 
 ---
 
-## 💻 Operating System Setup Guides
+## 📖 Detailed Step-by-Step Manual Setup
 
-Choose your operating system below for detailed step-by-step instructions.
+If you prefer to configure each component manually rather than using the one-go commands:
 
-```
-├── 🪟 Windows Setup Guide
-├── 🍎 macOS Setup Guide
-├── 🐧 Linux Setup Guide (Ubuntu/Debian, Fedora, Arch)
-└── 🐳 Docker & Docker Compose Setup (Universal)
-```
+### 🪟 Windows Manual Steps
 
----
-
-### 🪟 Windows Setup Guide
-
-#### 1. Prerequisites
-- **Python 3.11 or higher**: Download from [python.org](https://www.python.org/downloads/) *(Ensure **"Add python.exe to PATH"** is checked during installation)*.
-- **Node.js 18 or higher (LTS)**: Download from [nodejs.org](https://nodejs.org/).
-- **Git**: Download from [git-scm.com](https://git-scm.com/).
-
-#### 2. Clone the Repository
-Open **PowerShell** or **Command Prompt**:
+**1. Backend (Daphne ASGI Server):**
 ```powershell
-git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git
-cd Antarctic-Digital-Twin
-```
-
-#### 3. Automated 1-Click Launch (Recommended)
-Run the provided batch file:
-```cmd
-start_platform.bat
-```
-*This script automatically detects your Python environment, applies database migrations, seeds initial station & sensor telemetry, launches the Daphne ASGI server on port 8000, and starts the React Vite UI on port 5173.*
-
-#### 4. Manual Step-by-Step Launch (Alternative)
-
-**Terminal 1 — Backend (Daphne ASGI Server):**
-```powershell
-# Navigate to backend directory
 cd backend
-
-# Create and activate a Python virtual environment
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-# (If PowerShell displays an execution policy warning, run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass)
-
-# Install Python requirements
+pip install --upgrade pip
 pip install -r requirements.txt
-
-# Apply database migrations
 python manage.py migrate
-
-# Seed Antarctic station models, subsystems, sensors, and baseline telemetry
 python manage.py seed_stations
-
-# Launch Daphne ASGI server
 daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application
 ```
 
-**Terminal 2 — Frontend (React Vite UI):**
+**2. Frontend (React Vite UI):**
 ```powershell
-# In a new terminal window, navigate to frontend directory
 cd frontend
-
-# Install Node dependencies
-npm install
-
-# Start Vite development server
-npm run dev
-```
-
-Open your browser and navigate to: **[http://localhost:5173/](http://localhost:5173/)**
-
----
-
-### 🍎 macOS Setup Guide
-
-#### 1. Prerequisites
-- Install **Homebrew** (if not already installed):
-  ```bash
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  ```
-- Install **Python 3.11+**, **Node.js**, and **Git**:
-  ```bash
-  brew install python@3.11 node git
-  ```
-
-#### 2. Clone the Repository
-```bash
-git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git
-cd Antarctic-Digital-Twin
-```
-
-#### 3. Automated 1-Click Launch (Recommended)
-Make the launch script executable and run it:
-```bash
-chmod +x start_platform.sh
-./start_platform.sh
-```
-*Press `Ctrl+C` in the terminal to cleanly terminate both frontend and backend processes.*
-
-#### 4. Manual Step-by-Step Launch (Alternative)
-
-**Terminal 1 — Backend (Daphne ASGI Server):**
-```bash
-cd backend
-
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install requirements
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# Database migrations & seeding
-python manage.py migrate
-python manage.py seed_stations
-
-# Launch Daphne server
-daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application
-```
-
-**Terminal 2 — Frontend (React Vite UI):**
-```bash
-cd frontend
-
-# Install dependencies and run Vite dev server
 npm install
 npm run dev
 ```
 
-Open your browser and navigate to: **[http://localhost:5173/](http://localhost:5173/)**
-
 ---
 
-### 🐧 Linux Setup Guide (Ubuntu / Debian / Fedora / Arch)
+### 🍎 macOS Manual Steps
 
-#### 1. Prerequisites
-
-**Ubuntu / Debian:**
-```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv nodejs npm git build-essential
-```
-
-**Fedora / RHEL:**
-```bash
-sudo dnf install -y python3 python3-pip python3-virtualenv nodejs npm git gcc
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -Syu --needed python python-pip python-virtualenv nodejs npm git base-devel
-```
-
-#### 2. Clone the Repository
-```bash
-git clone https://github.com/Nishant-095/Antarctic-Digital-Twin.git
-cd Antarctic-Digital-Twin
-```
-
-#### 3. Automated 1-Click Launch (Recommended)
-```bash
-chmod +x start_platform.sh
-./start_platform.sh
-```
-
-#### 4. Manual Step-by-Step Launch (Alternative)
-
-**Terminal 1 — Backend (Daphne ASGI Server):**
+**1. Backend (Daphne ASGI Server):**
 ```bash
 cd backend
-
-# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
-
-# Install Python requirements
 pip install --upgrade pip
 pip install -r requirements.txt
-
-# Run migrations and seed data
 python manage.py migrate
 python manage.py seed_stations
-
-# Start Daphne ASGI server
 daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application
 ```
 
-**Terminal 2 — Frontend (React Vite UI):**
+**2. Frontend (React Vite UI):**
 ```bash
 cd frontend
-
-# Install Node dependencies
 npm install
+npm run dev
+```
 
-# Start Vite dev server
+---
+
+### 🐧 Linux Manual Steps
+
+**1. Backend (Daphne ASGI Server):**
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_stations
+daphne -b 127.0.0.1 -p 8000 antarctic_ops.asgi:application
+```
+
+**2. Frontend (React Vite UI):**
+```bash
+cd frontend
+npm install
 npm run dev -- --host 0.0.0.0
-```
-
-Open your browser and navigate to: **[http://localhost:5173/](http://localhost:5173/)**
-
----
-
-### 🐳 Docker & Docker Compose Setup (Universal)
-
-If you have [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine installed on Windows, macOS, or Linux, you can launch the complete ecosystem with Redis and Celery in a single command:
-
-```bash
-docker-compose up --build
-```
-
-- **Frontend Dashboard**: `http://localhost:5173/`
-- **Django REST API**: `http://localhost:8000/api/stations/`
-- **WebSocket Endpoint**: `ws://localhost:8000/ws/stations/<station_id>/`
-
-To tear down containers:
-```bash
-docker-compose down
 ```
 
 ---
@@ -356,8 +276,8 @@ Antarctic-Digital-Twin/
 ├── .gitignore                    # Root gitignore (Python, Django, Node, OS files)
 ├── README.md                     # Comprehensive documentation & setup guide
 ├── docker-compose.yml            # Multi-container orchestration (Backend, Redis, Celery, DB)
-├── start_platform.bat            # 1-Click launcher for Windows
-├── start_platform.sh             # 1-Click launcher for macOS & Linux
+├── start_platform.bat            # Self-bootstrapping 1-Click launcher for Windows
+├── start_platform.sh             # Self-bootstrapping 1-Click launcher for macOS & Linux
 │
 ├── backend/                      # Django ASGI / Channels Backend
 │   ├── antarctic_ops/            # Django project settings, ASGI routing & WSGI

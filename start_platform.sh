@@ -27,7 +27,7 @@ else
     exit 1
 fi
 
-# Detect virtual environment
+# Detect or create virtual environment
 if [ -d "$ROOT_DIR/.venv" ]; then
     echo "[*] Activating virtual environment (.venv)..."
     source "$ROOT_DIR/.venv/bin/activate"
@@ -40,13 +40,20 @@ elif [ -d "$BACKEND_DIR/.venv" ]; then
 elif [ -d "$BACKEND_DIR/venv" ]; then
     echo "[*] Activating virtual environment (backend/venv)..."
     source "$BACKEND_DIR/venv/bin/activate"
+else
+    echo "[*] Creating fresh Python virtual environment in backend/venv..."
+    $PYTHON_CMD -m venv "$BACKEND_DIR/venv"
+    source "$BACKEND_DIR/venv/bin/activate"
+    echo "[*] Installing backend dependencies (pip install)..."
+    pip install --upgrade pip
+    pip install -r "$BACKEND_DIR/requirements.txt"
 fi
 
 # Step 1: Database Setup
 echo "[1/3] Applying Django Database Migrations & Seeding Stations..."
 cd "$BACKEND_DIR"
-$PYTHON_CMD manage.py migrate
-$PYTHON_CMD manage.py seed_stations
+python manage.py migrate
+python manage.py seed_stations
 
 # Cleanup function on exit
 cleanup() {
@@ -89,6 +96,15 @@ echo "  - WebSocket Stream:           ws://localhost:8000/ws/stations/<station_i
 echo "======================================================================="
 echo "Press Ctrl+C to safely stop all services."
 echo ""
+
+# Try opening the browser automatically
+if command -v open &>/dev/null; then
+    sleep 2
+    open "http://localhost:5173/" 2>/dev/null || true
+elif command -v xdg-open &>/dev/null; then
+    sleep 2
+    xdg-open "http://localhost:5173/" 2>/dev/null || true
+fi
 
 # Wait for background jobs
 wait
