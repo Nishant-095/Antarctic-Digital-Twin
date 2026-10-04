@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, ShieldAlert, CheckCircle2, Play, Terminal, Clock, ShieldCheck } from 'lucide-react';
+import useDialogFocus from '../hooks/useDialogFocus';
 import { useTheme } from '../context/ThemeContext';
 
 export default function AlertsDrawer({
@@ -11,6 +12,7 @@ export default function AlertsDrawer({
   isExecuting,
 }) {
   const { isDark } = useTheme();
+  const dialogRef=useDialogFocus(isOpen,onClose);
   if (!isOpen) return null;
 
   const drawerBg = isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-white border-slate-300 text-black shadow-2xl';
@@ -19,7 +21,7 @@ export default function AlertsDrawer({
 
   return (
     <div className="fixed inset-0 z-[9999] flex justify-end bg-black/80 backdrop-blur-md select-none animate-fadeIn">
-      <div className={`w-full max-w-md border-l flex flex-col h-full shadow-2xl transition-colors ${drawerBg}`}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Incident and alarm management" className={`w-full max-w-md border-l flex flex-col h-full shadow-2xl transition-colors ${drawerBg}`}>
         {/* Header */}
         <div className={`p-4 border-b flex items-center justify-between transition-colors ${headerBg}`}>
           <div className="flex items-center gap-2.5">
@@ -34,6 +36,7 @@ export default function AlertsDrawer({
             </div>
           </div>
           <button
+            aria-label="Close incident and alarm management"
             onClick={onClose}
             className={`p-1 rounded transition-colors cursor-pointer ${
               isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-black hover:bg-slate-200'
@@ -121,7 +124,7 @@ export default function AlertsDrawer({
                         className="mt-2 w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded flex items-center justify-center gap-1.5 text-xs transition-colors shadow-sm cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>{isExecuting ? 'TRANSMITTING COMMAND...' : 'EXECUTE AUTOMATED FAIL-SAFE'}</span>
+                        <span>{isExecuting ? 'RESTORING SIMULATOR…' : 'RESTORE SIMULATOR BASELINE'}</span>
                       </button>
                     </div>
                   )}
@@ -135,8 +138,8 @@ export default function AlertsDrawer({
         <div className={`p-3 border-t text-[11px] flex items-center justify-between transition-colors ${
           isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-black font-medium'
         }`}>
-          <span>Telecommand Channel: Encrypted UHF / VSAT</span>
-          <span className="text-emerald-600 font-mono font-bold">LATENCY &lt; 40ms</span>
+          <span>Local simulator response</span>
+          <span className="text-emerald-600 font-mono font-bold">Prototype · No hardware control</span>
         </div>
       </div>
     </div>

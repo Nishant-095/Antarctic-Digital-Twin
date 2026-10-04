@@ -22,6 +22,8 @@ export default function DirectionalFlowConduit({
   warningColor = '#ef4444',
   warningLightColor = '#f87171',
   reverse = false,
+  isReducedMotion = false,
+  variant = 'fuel',
 }) {
   const lightsGroupRef = useRef();
 
@@ -32,7 +34,7 @@ export default function DirectionalFlowConduit({
   }, [points, reverse]);
 
   // Compute segments, tangents, orientations, and lengths
-  const { segments, totalLength, cumulativeLengths } = useMemo(() => {
+  const { segments, totalLength } = useMemo(() => {
     if (pathPoints.length < 2) {
       return { segments: [], totalLength: 0, cumulativeLengths: [0] };
     }
@@ -85,7 +87,7 @@ export default function DirectionalFlowConduit({
   // Animate partial lights moving along the wire in the flow direction
   useFrame((state) => {
     if (!lightsGroupRef.current || segments.length === 0 || totalLength <= 0) return;
-    const t = state.clock.getElapsedTime();
+    const t = isReducedMotion ? 0 : state.clock.getElapsedTime();
 
     const meshes = lightsGroupRef.current.children;
     const effectiveSpeed = isWarning ? speed * 0.2 : speed;
@@ -108,11 +110,16 @@ export default function DirectionalFlowConduit({
       const localFrac = Math.min(1.0, Math.max(0.0, (dist - currentSeg.startDist) / currentSeg.len));
       mesh.position.lerpVectors(currentSeg.p1, currentSeg.p2, localFrac);
       mesh.quaternion.copy(currentSeg.quat);
+      // Clip the packet at every bend/end so it cannot protrude into or past a tank.
+      const packetLength=Math.min(lightLength,currentSeg.len);
+      const clippedLength=Math.max(.02,Math.min(packetLength,2*(dist-currentSeg.startDist),2*(currentSeg.endDist-dist)));
+      if(variant==='water')mesh.scale.set(pipeRadius*.9,clippedLength/2,pipeRadius*.9);
+      else mesh.scale.set(1,clippedLength/lightLength,1);
 
       // Fade partial light gracefully at start and end of entire line
       const normalizedDist = dist / totalLength;
       const edgeFade = Math.sin(normalizedDist * Math.PI);
-      const blink = isWarning ? (Math.sin(t * 8) > 0 ? 1.0 : 0.2) : 1.0;
+      const blink = isWarning && !isReducedMotion ? (Math.sin(t * 8) > 0 ? 1.0 : 0.2) : 1.0;
       if (mesh.material) {
         mesh.material.opacity = (0.35 + 0.55 * edgeFade) * blink;
       }
@@ -130,20 +137,21 @@ export default function DirectionalFlowConduit({
       {segments.map((seg, i) => (
         <group key={`seg-${i}`}>
           {/* Outer Protective Conduit Jacket */}
-          <mesh position={seg.mid} quaternion={seg.quat} castShadow receiveShadow>
+          {variant!=='electric'&&<mesh position={seg.mid} quaternion={seg.quat} castShadow={variant!=='water'} receiveShadow>
             <cylinderGeometry args={[pipeRadius, pipeRadius, seg.len, 16]} />
             <meshStandardMaterial
-              color={baseColor}
+              color={variant==='water'||variant==='heat'?activeLineColor:baseColor}
               metalness={0.7}
               roughness={0.35}
               transparent
-              opacity={0.88}
+              opacity={variant==='water'?.22:variant==='heat'?.35:.88}
+              depthWrite={variant!=='water'&&variant!=='heat'}
             />
-          </mesh>
+          </mesh>}
 
           {/* Inner Glowing Flow Line (Directional Core Wire) */}
           <mesh position={seg.mid} quaternion={seg.quat}>
-            <cylinderGeometry args={[pipeRadius * 0.42, pipeRadius * 0.42, seg.len + 0.02, 12]} />
+            <cylinderGeometry args={[pipeRadius * 0.42, pipeRadius * 0.42, seg.len, 12]} />
             <meshStandardMaterial
               color={activeLineColor}
               emissive={activeLineColor}
@@ -152,7 +160,7 @@ export default function DirectionalFlowConduit({
           </mesh>
 
           {/* Directional Chevron Arrows Spaced Along the Wire ("Show direction thru a line") */}
-          {seg.arrowPositions.map((arrowPos, aIdx) => (
+          {variant!=='water'&&seg.arrowPositions.map((arrowPos, aIdx) => (
             <mesh key={`arrow-${aIdx}`} position={arrowPos} quaternion={seg.quat}>
               {/* Cone geometry default points up +Y; aligned with segment direction vector */}
               <coneGeometry args={[pipeRadius * 1.55, pipeRadius * 2.8, 12]} />
@@ -172,7 +180,7 @@ export default function DirectionalFlowConduit({
       <group ref={lightsGroupRef}>
         {Array.from({ length: numLights }).map((_, idx) => (
           <mesh key={`light-${idx}`}>
-            <cylinderGeometry args={[pipeRadius * 1.38, pipeRadius * 1.38, lightLength, 16]} />
+            {variant==='water'?<sphereGeometry args={[1,12,8]}/>:<cylinderGeometry args={[pipeRadius * 1.38, pipeRadius * 1.38, lightLength, 12]}/>}
             <meshStandardMaterial
               color={activeLightColor}
               emissive={activeLightColor}

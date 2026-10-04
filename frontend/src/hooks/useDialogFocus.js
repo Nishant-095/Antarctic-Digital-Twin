@@ -1,0 +1,5 @@
+import { useEffect, useRef } from 'react';
+export default function useDialogFocus(open,onClose){
+ const ref=useRef(null),close=useRef(onClose);useEffect(()=>{close.current=onClose;},[onClose]);
+ useEffect(()=>{if(!open)return;const prior=document.activeElement;const panel=ref.current;const items=()=>Array.from(panel?.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')||[]).filter(el=>el.getClientRects().length);items()[0]?.focus();const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close.current?.();}if(e.key==='Tab'){const nodes=items(),first=nodes[0],last=nodes.at(-1);if(!first){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};panel?.addEventListener('keydown',key);const previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{panel?.removeEventListener('keydown',key);document.body.style.overflow=previousOverflow;if(prior?.isConnected)prior.focus();};},[open]);return ref;
+}

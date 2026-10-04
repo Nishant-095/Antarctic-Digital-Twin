@@ -1,154 +1,99 @@
-import React, { useState } from 'react';
-import { Html } from '@react-three/drei';
-
-export default function HotspotMarker({
-  position,
-  label,
-  subsystemCode,
-  status = 'NOMINAL',
-  metricValue,
-  metricUnit,
-  onClick,
-  isModalOpen = false,
-  activeHotspot = null,
-}) {
-  const [hovered, setHovered] = useState(false);
-
-  const isAlert = status === 'CRITICAL' || status === 'WARNING' || status === 'EMERGENCY';
-  const isTrip = status === 'CRITICAL';
-
-  // When a modal is open or another hotspot is opened, the other badges must not be on screen
-  const shouldHideBadge = isModalOpen || (activeHotspot && activeHotspot !== subsystemCode);
-
-  return (
-    <group position={position}>
-      {/* 3D Anchor Ring & Sphere */}
-      <mesh
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick?.(subsystemCode);
-        }}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHovered(true);
-          document.body.style.cursor = 'pointer';
-        }}
-        onPointerOut={(e) => {
-          e.stopPropagation();
-          setHovered(false);
-          document.body.style.cursor = 'auto';
-        }}
-      >
-        <sphereGeometry args={[0.32, 16, 16]} />
-        <meshStandardMaterial
-          color={isTrip ? '#ef4444' : isAlert ? '#f59e0b' : '#10b981'}
-          emissive={isTrip ? '#dc2626' : isAlert ? '#d97706' : '#059669'}
-          emissiveIntensity={hovered ? 1.0 : 0.5}
-        />
-      </mesh>
-
-      {/* Floating Holographic Live Telemetry Badge - Completely hidden when modal or another hotspot is open */}
-      {!shouldHideBadge && (
-        <Html distanceFactor={22} center position={[0, 0.75, 0]} zIndexRange={[12, 0]}>
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick?.(subsystemCode);
-            }}
-            className={`cursor-pointer select-none transition-all duration-200 ${
-              hovered ? 'scale-110 z-10' : 'scale-100 z-0'
-            }`}
-          >
-          <div
-            className={`hotspot-badge flex flex-col rounded shadow-2xl font-mono text-[10px] overflow-hidden border backdrop-blur-none ${
-              isTrip
-                ? 'bg-red-600 border-red-300 shadow-[0_0_20px_rgba(239,68,68,0.8)] ring-2 ring-red-400/80 animate-status-blink'
-                : isAlert
-                ? 'bg-amber-500 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.6)] ring-1 ring-amber-300/80'
-                : 'bg-slate-900 border-slate-600 text-slate-100 hover:border-sky-400'
-            }`}
-            style={{
-              backgroundColor: isTrip ? '#dc2626' : isAlert ? '#d97706' : '#0f172a',
-              borderColor: isTrip ? '#f87171' : isAlert ? '#fbbf24' : '#475569',
-              color: '#ffffff',
-            }}
-          >
-            {/* Top Label & Status Indicator */}
-            <div
-              className="flex items-center justify-between gap-3 px-2 py-1 border-b border-white/20"
-              style={{
-                backgroundColor: isTrip ? '#b91c1c' : isAlert ? '#b45309' : '#1e293b',
-              }}
-            >
-              <span
-                className="flex items-center gap-1.5 font-extrabold uppercase tracking-wider text-[9px] text-white"
-                style={{ color: '#ffffff' }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full ring-1 ring-white/50"
-                  style={{
-                    backgroundColor: isTrip ? '#ffffff' : isAlert ? '#ffffff' : '#34d399',
-                  }}
-                />
-                <span style={{ color: '#ffffff', fontWeight: 800 }}>{label}</span>
-              </span>
-              <span
-                className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-xs"
-                style={{
-                  backgroundColor: '#ffffff',
-                  color: isTrip ? '#b91c1c' : isAlert ? '#92400e' : '#047857',
-                  fontWeight: 900,
-                }}
-              >
-                {status}
-              </span>
-            </div>
-
-            {/* Bottom Live Value Bar (Ticks in Real Time) */}
-            {metricValue !== undefined && (
-              <div
-                className="px-2 py-1 flex items-baseline justify-between gap-3 font-mono"
-                style={{
-                  backgroundColor: isTrip ? '#991b1b' : isAlert ? '#78350f' : '#020617',
-                }}
-              >
-                <span
-                  className="text-[9px] font-bold uppercase tracking-wider"
-                  style={{ color: isTrip ? '#fecaca' : isAlert ? '#fef3c7' : '#94a3b8' }}
-                >
-                  LIVE:
-                </span>
-                <span
-                  className="font-black text-[12px] font-mono-num"
-                  style={{ color: '#ffffff', fontWeight: 900 }}
-                >
-                  {typeof metricValue === 'number' ? metricValue.toFixed(1) : metricValue}{' '}
-                  <span
-                    className="text-[9px] font-medium"
-                    style={{ color: isTrip ? '#fecaca' : isAlert ? '#fef3c7' : '#cbd5e1' }}
-                  >
-                    {metricUnit}
-                  </span>
-                </span>
-              </div>
-            )}
-
-            {/* Hover Prompt */}
-            {hovered && (
-              <div
-                className="px-2 py-0.5 text-[8px] font-bold text-center uppercase tracking-wider border-t border-white/20"
-                style={{
-                  backgroundColor: isTrip ? '#7f1d1d' : isAlert ? '#78350f' : '#0369a1',
-                  color: '#ffffff',
-                }}
-              >
-                Click for Full SCADA Diagnostics
-              </div>
-            )}
-          </div>
-        </div>
-      </Html>
-    )}
-  </group>
-);
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Billboard } from '@react-three/drei';
+import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+const layouts=new WeakMap();
+import { LABEL_WIDTH as WIDTH, LABEL_HEIGHT as HEIGHT, placeCallouts } from './labelLayout';
+function layoutLabels(registry,camera,size,time){
+ if(registry.time===time)return;
+ registry.time=time;camera.updateMatrixWorld(true);
+ const entries=[...registry.entries.values()];
+ const bounds=entries[0]?.bounds;
+ let building=null;
+ if(bounds){
+  const corners=[];
+  for(const x of [-bounds[0],bounds[0]])for(const y of [0,bounds[3]+.8])for(const z of [-bounds[2]-1,bounds[2]+5])corners.push(new THREE.Vector3(x,y,z).project(camera));
+  const visible=corners.filter(v=>v.z>=-1&&v.z<=1);
+  if(visible.length){
+   const xs=visible.map(v=>(v.x+1)*size.width/2),ys=visible.map(v=>(1-v.y)*size.height/2);
+   building={x:Math.min(...xs)-18,y:Math.min(...ys)-18,w:Math.max(...xs)-Math.min(...xs)+36,h:Math.max(...ys)-Math.min(...ys)+36};
+   if(visible.length<corners.length)building={x:0,y:0,w:size.width,h:size.height};
+  }
+ }
+ entries.forEach(entry=>{
+  entry.group.getWorldPosition(entry.anchor);entry.ndc.copy(entry.anchor).project(camera);
+  entry.x=(entry.ndc.x+1)*size.width/2;entry.y=(1-entry.ndc.y)*size.height/2;
+  entry.front=entry.ndc.z<=1&&entry.ndc.z>=-1;
+  entry.placed=false;
+ });
+ const positions=placeCallouts(entries.filter(e=>e.front&&e.x>-40&&e.x<size.width+40&&e.y>-40&&e.y<size.height+40),size,building);
+ for(const result of positions){
+  const entry=registry.entries.get(result.id);entry.placed=result.placed;
+  if(!result.placed)continue;
+  entry.previous={x:result.x,y:result.y};
+  const project=(target,point)=>{target.set(point.x/size.width*2-1,1-point.y/size.height*2,entry.ndc.z).unproject(camera);entry.group.worldToLocal(target);};
+  project(entry.output,result);project(entry.edge,result.edge);project(entry.elbow,result.elbow);
+ }
+}
+function routeColor(status){return status.includes('WATER')?'#168cb0':status.includes('LOGISTICS')?'#4f8740':status.includes('HEAT')?'#bc6937':status.includes('POWER')?'#a07a25':'#3b7b84';}
+function Callout({label,status,value,alert}){
+ const texture=useMemo(()=>{
+  const canvas=document.createElement('canvas');canvas.width=WIDTH*4;canvas.height=HEIGHT*4;
+  const ctx=canvas.getContext('2d');ctx.scale(4,4);
+  const accent=alert?'#b84338':routeColor(status);
+  ctx.fillStyle='rgba(246,249,251,.98)';ctx.strokeStyle=alert?'#d2968d':'#829ba9';ctx.lineWidth=.8;
+  ctx.beginPath();ctx.roundRect(.5,.5,WIDTH-1,HEIGHT-1,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle=accent;ctx.beginPath();ctx.roundRect(5,8,3,HEIGHT-16,1.5);ctx.fill();
+  const category=alert?status:({WATER:'WATER SUPPLY',LOGISTICS:'CARGO & STORES',HEAT:'HEATING LOOP',POWER:'FUEL & POWER'})[status.split(' ')[0]]||'SYSTEM / '+status;
+  ctx.fillStyle=accent;ctx.font='600 9px Arial';ctx.fillText(category,15,16,WIDTH-30);
+  ctx.font='600 13px Arial';ctx.fillStyle='#203744';
+  const words=label.split(' '),lines=[''];
+  for(const word of words){const i=lines.length-1,next=(lines[i]+' '+word).trim();if(ctx.measureText(next).width>WIDTH-30&&lines[i]&&lines.length<2)lines.push(word);else lines[i]=next;}
+  lines.forEach((line,i)=>ctx.fillText(line,15,lines.length>1?34+i*16:38,WIDTH-30));
+  if(value&&lines.length===1){ctx.fillStyle='#496270';ctx.font='11px Arial';ctx.fillText(value,15,53,WIDTH-30);}
+  const result=new THREE.CanvasTexture(canvas);result.colorSpace=THREE.SRGBColorSpace;return result;
+ },[label,status,value,alert]);
+ useEffect(()=>()=>texture.dispose(),[texture]);
+ return <mesh renderOrder={1000}><planeGeometry args={[4.2,4.2*HEIGHT/WIDTH]}/><meshBasicMaterial map={texture} transparent depthTest={false} depthWrite={false} toneMapped={false}/></mesh>;
+}
+export default function HotspotMarker({position,label,subsystemCode,status='NOMINAL',metricValue,metricUnit,onClick,isModalOpen=false,activeHotspot=null,reducedMotion=false,labelVisibility=true,modelBounds=null}){
+ const [hovered,setHovered]=useState(false);
+ const labelRef=useRef(),dotRef=useRef(),dotMeshRef=useRef(),groupRef=useRef(),leaderRef=useRef();const id=useId();const {camera,size}=useThree();
+ const points=useMemo(()=>new Float32Array(9),[]);
+ const hide=isModalOpen||(activeHotspot&&activeHotspot!==subsystemCode)||(!labelVisibility&&!hovered);
+ const entry=useRef({id,anchor:new THREE.Vector3(),ndc:new THREE.Vector3(),output:new THREE.Vector3(),edge:new THREE.Vector3(),elbow:new THREE.Vector3()});
+ useEffect(()=>{
+  if(hide)return;
+  let registry=layouts.get(camera);if(!registry){registry={entries:new Map(),time:-1};layouts.set(camera,registry);}
+  entry.current.group=groupRef.current;entry.current.bounds=modelBounds;registry.entries.set(id,entry.current);registry.time=-1;
+  return()=>{registry.entries.delete(id);registry.time=-1;};
+ },[camera,hide,id,modelBounds]);
+ const world=useRef(new THREE.Vector3());const direction=useRef(new THREE.Vector3());
+ const alert=['CRITICAL','WARNING','EMERGENCY'].includes(status);
+ const accent=alert?'#b84338':routeColor(status);
+ useEffect(()=>()=>{document.body.style.cursor='auto';},[]);
+ useFrame(({clock})=>{
+  if(labelRef.current){
+   const registry=layouts.get(camera);
+   if(registry){layoutLabels(registry,camera,size,clock.elapsedTime);labelRef.current.position.copy(entry.current.output);}
+   labelRef.current.getWorldPosition(world.current);camera.getWorldDirection(direction.current);
+   const depth=world.current.sub(camera.position).dot(direction.current);
+   labelRef.current.visible=depth>.1&&entry.current.front!==false&&entry.current.placed===true;
+   const worldPerPixel=2*Math.max(.1,depth)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/Math.max(1,size.height);
+   labelRef.current.scale.setScalar(worldPerPixel*WIDTH/4.2);
+   if(leaderRef.current){
+    entry.current.elbow.toArray(points,3);entry.current.edge.toArray(points,6);
+    leaderRef.current.visible=labelRef.current.visible;
+    leaderRef.current.geometry.attributes.position.needsUpdate=true;
+   }
+  }
+  if(dotMeshRef.current){groupRef.current.getWorldPosition(world.current);camera.getWorldDirection(direction.current);const distance=world.current.sub(camera.position).dot(direction.current);dotMeshRef.current.visible=distance>.1;dotMeshRef.current.scale.setScalar(2*Math.max(.1,distance)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/Math.max(1,size.height)*3/.13);}
+  if(dotRef.current)dotRef.current.emissiveIntensity=alert?(reducedMotion?1:1.2+.8*Math.sin(clock.elapsedTime*Math.PI*2)):(hovered?.7:.3);
+ });
+ const value=metricValue===undefined?'':`${typeof metricValue==='number'?metricValue.toFixed(1):metricValue} ${metricUnit||''}`;
+ return <group ref={groupRef} position={position} onClick={e=>{e.stopPropagation();onClick?.(subsystemCode);}} onPointerOver={e=>{e.stopPropagation();setHovered(true);document.body.style.cursor='pointer';}} onPointerOut={()=>{setHovered(false);document.body.style.cursor='auto';}}>
+  <mesh ref={dotMeshRef} renderOrder={1001}><sphereGeometry args={[.13,12,12]}/><meshStandardMaterial ref={dotRef} color={accent} emissive={accent} transparent depthTest={false} depthWrite={false} toneMapped={false}/><Billboard><mesh renderOrder={1001}><ringGeometry args={[.15,.22,24]}/><meshBasicMaterial color='#f5f9fb' transparent opacity={.95} depthTest={false} depthWrite={false} toneMapped={false}/></mesh></Billboard></mesh>
+  {!hide&&<line ref={leaderRef} frustumCulled={false} renderOrder={999}><bufferGeometry><bufferAttribute attach="attributes-position" args={[points,3]}/></bufferGeometry><lineBasicMaterial color={accent} transparent opacity={.75} depthTest={false} depthWrite={false}/></line>}
+  {!hide&&<Billboard ref={labelRef} position={[0,1,0]}><Callout label={label} status={status} value={value} alert={alert}/></Billboard>}
+ </group>;
 }

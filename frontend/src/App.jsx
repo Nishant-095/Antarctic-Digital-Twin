@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import Header from './components/Header';
-import DashboardLanding from './components/DashboardLanding';
-import DigitalTwinPage from './components/twin/DigitalTwinPage';
+const DashboardLanding = lazy(() => import('./components/DashboardLanding'));
+const DigitalTwinPage = lazy(() => import('./components/twin/DigitalTwinPage'));
 import AlertsDrawer from './components/AlertsDrawer';
 import SubsystemDetailModal from './components/SubsystemDetailModal';
 import { useTheme } from './context/ThemeContext';
@@ -29,6 +29,8 @@ export default function App() {
   const [isSyncingWeather, setIsSyncingWeather] = useState(false);
   const [isExecutingFailSafe, setIsExecutingFailSafe] = useState(false);
 
+  const [commandFeedback, setCommandFeedback] = useState(null);
+  const stationRef = useRef(activeStation);
   const socketRef = useRef(null);
   const pollTimerRef = useRef(null);
 
@@ -45,6 +47,8 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
+  useEffect(() => { document.title = `Polar station operations · ${activeStation === 'maitri' ? 'Maitri' : 'Bharati'} · ${activeView === 'twin' ? 'Digital twin' : 'Dashboard'}`; }, [activeStation, activeView]);
+
   const handleViewChange = (view) => {
     setActiveView(view);
     window.location.hash = view === 'twin' ? '#/twin' : '#/dashboard';
@@ -58,6 +62,7 @@ export default function App() {
         fetchStationHistory(slug).catch(() => null),
       ]);
 
+      if (stationRef.current !== slug) return;
       if (telData) {
         setTelemetry(telData);
       }
@@ -71,6 +76,7 @@ export default function App() {
 
   // Set up WebSocket telemetry stream with automatic HTTP polling fallback
   useEffect(() => {
+    let disposed = false;
     // 1. Initial REST fetch
     loadInitialData(activeStation);
 
@@ -87,6 +93,7 @@ export default function App() {
     const wsClient = createTelemetrySocket(
       activeStation,
       (message) => {
+        if (disposed) return;
         if (
           message.type === 'TELEMETRY_TICK' ||
           message.type === 'CONNECTION_ESTABLISHED' ||
@@ -100,6 +107,7 @@ export default function App() {
               const merged = {
                 ...(prev || {}),
                 ...tickData,
+                timestamp: tickData.timestamp ?? new Date().toISOString(),
                 kpis: {
                   power_kw: tickData.kpis?.power_kw ?? tickData.total_power_kw ?? prev?.kpis?.power_kw,
                   fuel_days: tickData.kpis?.fuel_days ?? tickData.fuel_reserve_days ?? prev?.kpis?.fuel_days,
@@ -124,10 +132,10 @@ export default function App() {
 
             // Update real-time history stream for charts (debounced per second)
             const now = new Date();
-            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-            const powerVal = tickData.total_power_kw || (activeStation === 'maitri' ? 180 : 308);
-            const burnVal = tickData.simulation?.fuel_burn_rate || 24.2;
-            const thermVal = tickData.primary_thermal_temp || 4.2;
+            const timeStr = now.toLocaleTimeString('en-GB', {timeZone:'UTC', hour12:false});
+            const powerVal = tickData.kpis?.power_kw ?? tickData.total_power_kw ?? null;
+            const burnVal = tickData.simulation?.fuel_burn_rate ?? null;
+            const thermVal = tickData.kpis?.thermal_temp ?? tickData.primary_thermal_temp ?? null;
 
             setHistory((prevHist) => {
               const last = prevHist[prevHist.length - 1];
@@ -141,6 +149,7 @@ export default function App() {
         }
       },
       (status) => {
+        if (disposed) return;
         setConnectionStatus(status);
         if (status === 'OFFLINE_BUFFER') {
           // Engage HTTP polling fallback every 2.0s
@@ -148,7 +157,7 @@ export default function App() {
             pollTimerRef.current = setInterval(async () => {
               try {
                 const latest = await fetchStationTelemetry(activeStation);
-                if (latest) {
+                if (latest && !disposed && stationRef.current === activeStation) {
                   setTelemetry(latest);
                 }
               } catch (e) {
@@ -168,7 +177,7 @@ export default function App() {
       if (Date.now() - lastMessageTimestamp > 6000) {
         try {
           const latest = await fetchStationTelemetry(activeStation);
-          if (latest) {
+          if (latest && !disposed && stationRef.current === activeStation) {
             setTelemetry(latest);
             lastMessageTimestamp = Date.now();
           }
@@ -181,6 +190,7 @@ export default function App() {
     socketRef.current = wsClient;
 
     return () => {
+      disposed = true;
       if (socketRef.current) {
         socketRef.current.close();
       }
@@ -192,85 +202,49 @@ export default function App() {
   // Handle station change
   const handleStationChange = (slug) => {
     if (slug !== activeStation) {
+      stationRef.current = slug;
+      setTelemetry(null);
+      setHistory([]);
+      setConnectionStatus('CONNECTING');
+      setCommandFeedback(null);
       setActiveStation(slug);
       setSelectedSubsystem(null);
     }
   };
 
-  // Trigger incident simulation
+  // Commands report server-confirmed outcomes and preserve the last snapshot on failure.
   const handleTriggerIncident = async (incidentCode) => {
+    if (isSimulating) return;
+    const slug = activeStation;
     setIsSimulating(true);
-    // Optimistic UI update for immediate response
-    setTelemetry((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        active_incident: incidentCode,
-        operational_status: 'ALERT',
-        kpis: {
-          ...prev.kpis,
-          wind_speed: incidentCode === 'BLIZZARD_ALERT' ? 98.4 : prev.kpis?.wind_speed,
-          ambient_temp: incidentCode === 'BLIZZARD_ALERT' ? -38.2 : prev.kpis?.ambient_temp,
-          thermal_temp: incidentCode === 'LAKE_PIPE_FREEZE' ? -3.8 : (incidentCode === 'GLYCOL_PRESSURE_DROP' ? 38.0 : prev.kpis?.thermal_temp),
-        },
-      };
-    });
-
+    setCommandFeedback({text:'Applying exercise to the simulator…'});
     try {
-      const res = await triggerIncident(activeStation, incidentCode);
-      if (res?.telemetry) {
-        setTelemetry((prev) => ({
-          ...(prev || {}),
-          ...res.telemetry,
-        }));
+      const res = await triggerIncident(slug, incidentCode);
+      if (stationRef.current === slug) {
+        if (res?.telemetry) setTelemetry(res.telemetry);
+        setCommandFeedback({text:'Exercise applied. Inspect system readings and alerts, then restore nominal state.'});
       }
-      socketRef.current?.send('simulate_incident', { incident: incidentCode });
     } catch (err) {
-      console.error("Failed to trigger incident:", err);
-    } finally {
-      setIsSimulating(false);
-    }
+      if (stationRef.current === slug) setCommandFeedback({error:true,text:'Exercise could not be applied. Check the backend connection and retry.'});
+    } finally { setIsSimulating(false); }
   };
 
-  // Restore nominal operations
   const handleRestoreNominal = async () => {
+    if (isSimulating) return false;
+    const slug = activeStation;
     setIsSimulating(true);
-    const baselineWind = activeStation === 'maitri' ? 12.2 : 22.4;
-    const baselineTemp = activeStation === 'maitri' ? -25.4 : -12.4;
-    const baselineThermal = activeStation === 'maitri' ? 4.2 : 60.0;
-
-    // Instant optimistic reset so UI clears alerts immediately
-    setTelemetry((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        active_incident: null,
-        alerts: [],
-        operational_status: 'NOMINAL',
-        kpis: {
-          ...prev.kpis,
-          wind_speed: baselineWind,
-          ambient_temp: baselineTemp,
-          thermal_temp: baselineThermal,
-          surface_pressure: activeStation === 'maitri' ? 972.6 : 965.7,
-        },
-      };
-    });
-
+    setCommandFeedback({text:'Restoring the simulated station…'});
     try {
-      const res = await restoreNominal(activeStation);
-      if (res?.telemetry) {
-        setTelemetry((prev) => ({
-          ...(prev || {}),
-          ...res.telemetry,
-        }));
+      const res = await restoreNominal(slug);
+      if (stationRef.current === slug) {
+        if (res?.telemetry) setTelemetry(res.telemetry);
+        setCommandFeedback({text:'Nominal state restored. The simulated incident has been cleared.'});
       }
-      socketRef.current?.send('restore_nominal');
+      return true;
     } catch (err) {
-      console.error("Failed to restore nominal:", err);
-    } finally {
-      setIsSimulating(false);
-    }
+      if (stationRef.current === slug) setCommandFeedback({error:true,text:'Restore failed. The last reported station state is retained; check the connection and retry.'});
+      return false;
+    } finally { setIsSimulating(false); }
   };
 
   // Execute fail-safe action from Alert Drawer
@@ -279,8 +253,8 @@ export default function App() {
     try {
       // Simulate remote SCADA automation sequence
       await new Promise((resolve) => setTimeout(resolve, 600));
-      await handleRestoreNominal();
-      setIsAlertsOpen(false);
+      const restored = await handleRestoreNominal();
+      if (restored) setIsAlertsOpen(false);
     } catch (err) {
       console.error("Failed to execute fail-safe:", err);
     } finally {
@@ -305,7 +279,8 @@ export default function App() {
   const alertCount = telemetry?.alerts?.length || 0;
 
   return (
-    <>
+    <div className={activeView === 'dashboard' ? 'dashboard-type-preview' : undefined}>
+      <Suspense fallback={<div className="workspace-loading" role="status"><span>INDIAN POLAR OPERATIONS</span><strong>Loading station workspace…</strong></div>}>
       {activeView === 'dashboard' ? (
         <div className={`flex flex-col min-h-screen transition-colors overflow-x-hidden ${
           isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-white text-black'
@@ -326,6 +301,8 @@ export default function App() {
           <main className="flex-1">
             <DashboardLanding
               stationSlug={activeStation}
+              connectionStatus={connectionStatus}
+              commandFeedback={commandFeedback}
               telemetry={telemetry}
               history={history}
               onLaunchTwin={() => handleViewChange('twin')}
@@ -356,6 +333,7 @@ export default function App() {
         />
       )}
 
+      </Suspense>
       {/* 4. ALERTS & INCIDENT MANAGEMENT SLIDE-OVER */}
       <AlertsDrawer
         isOpen={isAlertsOpen}
@@ -368,14 +346,17 @@ export default function App() {
 
       {/* 5. 3D HOTSPOT SUBSYSTEM DETAIL MODAL */}
       <SubsystemDetailModal
+        key={`${activeStation}-${selectedSubsystem || 'closed'}`}
         subsystemCode={selectedSubsystem}
         onClose={() => setSelectedSubsystem(null)}
         stationSlug={activeStation}
         telemetry={telemetry}
-        onTriggerCommand={(cmd) => {
-          socketRef.current?.send('command', { command: cmd });
+        onTriggerCommand={async () => {
+          const slug=activeStation;
+          const latest=await fetchStationTelemetry(slug);
+          if(stationRef.current===slug) setTelemetry(latest);
         }}
       />
-    </>
+    </div>
   );
 }
