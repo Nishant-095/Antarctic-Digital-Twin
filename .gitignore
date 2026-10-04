@@ -71,3 +71,10 @@ Thumbs.db
 celerybeat-schedule
 celerybeat.pid
 dump.rdb
+
+# Local credentials and database sidecars
+.env
+.env.*
+!.env.example
+*.sqlite3-wal
+*.sqlite3-shm

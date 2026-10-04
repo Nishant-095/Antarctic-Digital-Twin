@@ -1,411 +1,131 @@
-import React, { useRef, useState, useEffect, Suspense } from 'react';
+import React, { useRef, useState, useEffect, useMemo, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import MaitriModel from './MaitriModel';
 import BharatiModel from './BharatiModel';
 import BlizzardParticles from './BlizzardParticles';
-import {
-  Maximize2,
-  Minimize2,
-  Eye,
-  Wind,
-  Layers,
-  Thermometer,
-  Box,
-  Compass,
-  Zap,
-  Flame,
-  Droplets,
-  Sun,
-  Moon,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-} from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
-
-function CameraRig({ targetPosition, targetLookAt, waypointTrigger, controlsRef }) {
-  const isTransitioningRef = useRef(false);
-  const targetPosVec = useRef(new THREE.Vector3());
-  const targetLookVec = useRef(new THREE.Vector3());
-  const prevTriggerRef = useRef(null);
-
-  // Only trigger smooth flight when waypointTrigger explicitly changes
-  useEffect(() => {
-    if (waypointTrigger !== undefined && waypointTrigger !== null && waypointTrigger !== prevTriggerRef.current) {
-      prevTriggerRef.current = waypointTrigger;
-      if (targetPosition && targetLookAt) {
-        targetPosVec.current.set(...targetPosition);
-        targetLookVec.current.set(...targetLookAt);
-        isTransitioningRef.current = true;
-      }
-    }
-  }, [waypointTrigger, targetPosition, targetLookAt]);
-
-  // Cancel transition IMMEDIATELY upon any user interaction with OrbitControls (wheel, drag, touch)
-  useEffect(() => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    const handleUserStart = () => {
-      isTransitioningRef.current = false;
-    };
-    controls.addEventListener('start', handleUserStart);
-    return () => controls.removeEventListener('start', handleUserStart);
-  }, [controlsRef]);
-
-  useFrame((state, delta) => {
-    if (!controlsRef.current || !isTransitioningRef.current) return;
-    const controls = controlsRef.current;
-
-    controls.object.position.lerp(
-      targetPosVec.current,
-      Math.min(1.0, delta * 3.5)
-    );
-    controls.target.lerp(
-      targetLookVec.current,
-      Math.min(1.0, delta * 3.5)
-    );
-    controls.update();
-
-    if (
-      controls.object.position.distanceTo(targetPosVec.current) < 0.15 &&
-      controls.target.distanceTo(targetLookVec.current) < 0.15
-    ) {
-      isTransitioningRef.current = false;
-    }
-  });
-
-  return null;
+import SpectatorModeController from './SpectatorModeController';
+import { WEATHER_OPTIONS, sceneWeather } from './stationWeather';
+import { stationTour } from './guidedTour';
+import { WORKFLOWS } from './stationLayout';
+import { Compass, Sun, Moon, ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2 } from 'lucide-react';
+import './StationCanvas.css';
+function CameraRig({ targetPosition, targetLookAt, waypointTrigger, controlsRef, enabled=true, paused=false, reducedMotion=false, onArrive, onInteraction }) {
+ const flight=useRef(null),callbacks=useRef({onArrive,onInteraction});
+ callbacks.current={onArrive,onInteraction};
+ useEffect(()=>{
+  const c=controlsRef.current;if(!enabled||!c||!targetPosition||!targetLookAt)return;
+  const start=c.object.position.clone(),end=new THREE.Vector3(...targetPosition);
+  const distance=start.distanceTo(end),height=distance>14?Math.max(start.y,end.y,18):Math.max(start.y,end.y);
+  const a=start.clone().lerp(end,.32),b=start.clone().lerp(end,.68);
+  a.y=height;b.y=height;
+  flight.current={curve:new THREE.CubicBezierCurve3(start,a,b,end),startLook:c.target.clone(),endLook:new THREE.Vector3(...targetLookAt),elapsed:0,duration:reducedMotion?0:Math.min(3.6,1.4+distance*.025)};
+ },[waypointTrigger,enabled,reducedMotion,controlsRef]);
+ useEffect(()=>{
+  const c=controlsRef.current;if(!c)return;
+  const cancel=()=>{flight.current=null;callbacks.current.onInteraction?.();};
+  c.addEventListener('start',cancel);return()=>c.removeEventListener('start',cancel);
+ },[controlsRef]);
+ useFrame((_,delta)=>{
+  const f=flight.current,c=controlsRef.current;if(!enabled||paused||!f||!c)return;
+  f.elapsed+=Math.min(delta,.05);
+  const t=f.duration?Math.min(1,f.elapsed/f.duration):1;
+  const ease=t*t*t*(t*(t*6-15)+10);
+  f.curve.getPoint(ease,c.object.position);c.target.lerpVectors(f.startLook,f.endLook,ease);c.update();
+  if(t===1){flight.current=null;callbacks.current.onArrive?.();}
+ });
+ return null;
 }
 
-export default function StationCanvas({
-  stationSlug,
-  telemetry,
-  onSelectHotspot,
-  isFullscreen,
-  onToggleFullscreen,
-  cameraTargetPosition,
-  cameraTargetLookAt,
-  waypointTrigger,
-  isModalOpen = false,
-  activeSubsystem = null,
-}) {
-  const { isDark } = useTheme();
-  const controlsRef = useRef();
-  const [viewMode, setViewMode] = useState('NORMAL'); // 'NORMAL' | 'THERMAL' | 'XRAY'
-  const [lightingEnv, setLightingEnv] = useState('DAYLIGHT'); // 'DAYLIGHT' | 'NIGHT'
+class SceneBoundary extends React.Component {
+ state={failed:false};static getDerivedStateFromError(){return {failed:true};}
+ componentDidCatch(){this.props.onError?.();}
+ render(){return this.state.failed?<div className="station-scene-error" role="alert"><h3>The station scene could not be displayed</h3><p>The operations dashboard and sensor diagnostics remain available.</p><button onClick={()=>this.setState({failed:false})}>Retry scene</button></div>:this.props.children;}
+}
 
-  const isMaitri = stationSlug === 'maitri';
-  const isDaylight = lightingEnv === 'DAYLIGHT';
-  const windSpeed = telemetry?.kpis?.wind_speed ?? 25;
-  const windDirection = telemetry?.wind_direction ?? 115;
-  const activeIncident = telemetry?.active_incident;
+export default function StationCanvas({stationSlug,telemetry,onSelectHotspot,isFullscreen,onToggleFullscreen,cameraTargetPosition,cameraTargetLookAt,waypointTrigger,isModalOpen=false,activeSubsystem=null,onExplorationChange,onToggleTelemetry,isTourActive=false,onTourActiveChange}) {
+ const controlsRef=useRef(),explorerApi=useRef(),savedView=useRef(null);
+ const [tourOpen,setTourOpen]=useState(false),[tourIndex,setTourIndex]=useState(0),[arrived,setArrived]=useState(false),[tourDone,setTourDone]=useState(false),[navigation,setNavigation]=useState(null),[flightRevision,setFlightRevision]=useState(0),[tourManualFlight,setTourManualFlight]=useState(false);
+ const stops=useMemo(()=>stationTour(stationSlug),[stationSlug]);const tourStop=stops[tourIndex]||stops[0];
+const [hud,setHud]=useState({});const [weatherChoice,setWeatherChoice]=useState('auto');
+ const weather=sceneWeather(stationSlug,weatherChoice,telemetry);
+ const [viewMode,setViewMode]=useState('NORMAL'),[day,setDay]=useState(true),[cutaway,setCutaway]=useState(false),[floorLevel,setFloorLevel]=useState('science'),[workflow,setWorkflow]=useState('none'),[exploring,setExploring]=useState(false),[reduced,setReduced]=useState(false);
+ const maitri=stationSlug==='maitri';const overview=useMemo(()=>maitri?[30,26,46]:[54,39,67],[maitri]);const target=useMemo(()=>maitri?[0,2,0]:[0,5,0],[maitri]);const Model=maitri?MaitriModel:BharatiModel;
+ const wind=weather.wind,direction=weather.direction;
+ useEffect(()=>{const q=matchMedia('(prefers-reduced-motion: reduce)');const f=()=>setReduced(q.matches);f();q.addEventListener('change',f);return()=>q.removeEventListener('change',f);},[]);
+ const preset=(position,look)=>{if(tourOpen)setTourManualFlight(true);setNavigation(v=>({position,look,revision:(v?.revision||0)+1}));};
+ const leave=()=>{setExploring(false);onExplorationChange?.(false);preset(overview,target);};
+ const closeTour=()=>{setTourOpen(false);onTourActiveChange?.(false);setTourDone(false);if(savedView.current){setWorkflow(savedView.current.workflow);setCutaway(savedView.current.cutaway);setFloorLevel(savedView.current.floorLevel);setViewMode(savedView.current.viewMode);if(savedView.current.position)preset(savedView.current.position,savedView.current.look);savedView.current=null;}};
+ const reset=()=>{closeTour();setCutaway(false);leave();};
+ useEffect(()=>{setWeatherChoice('auto');setTourOpen(false);setTourIndex(0);setTourDone(false);setNavigation(null);savedView.current=null;onTourActiveChange?.(false);setExploring(false);setCutaway(false);setFloorLevel('science');setWorkflow('none');onExplorationChange?.(false);},[stationSlug]);
+ useEffect(()=>{setNavigation(null);setCutaway(false);setTourOpen(false);if(savedView.current){setWorkflow(savedView.current.workflow);setViewMode(savedView.current.viewMode);savedView.current=null;}onTourActiveChange?.(false);},[waypointTrigger]);
+ useEffect(()=>{
+  setTourManualFlight(false);
+  if(!isTourActive)return;
+  if(!tourOpen){savedView.current={workflow,cutaway,floorLevel,viewMode,position:controlsRef.current?.object.position.toArray(),look:controlsRef.current?.target.toArray()};setTourIndex(0);setTourOpen(true);setTourDone(false);setArrived(false);setNavigation(null);}
+  else {if(tourDone){setTourIndex(0);setTourDone(false);}setNavigation(null);setArrived(false);setFlightRevision(v=>v+1);}
+ },[isTourActive]);
+ useEffect(()=>{
+  if(!tourOpen)return;
+  setArrived(false);setWorkflow(tourStop.workflow);setCutaway(!!tourStop.floor);setFloorLevel(tourStop.floor||'science');setViewMode('NORMAL');
+ },[tourOpen,tourIndex,stationSlug]);
+ useEffect(()=>{
+  if(!tourOpen||!isTourActive||!arrived||isModalOpen||document.hidden)return;
+  const timer=setTimeout(()=>{
+   if(tourIndex<stops.length-1){setArrived(false);setNavigation(null);setTourIndex(i=>i+1);}
+   else{setTourDone(true);onTourActiveChange?.(false);}
+  },tourStop.duration);
+  return()=>clearTimeout(timer);
+ },[tourOpen,isTourActive,arrived,isModalOpen,tourIndex,stops.length]);
+ useEffect(()=>{const pause=()=>{if(document.hidden)onTourActiveChange?.(false);};document.addEventListener('visibilitychange',pause);return()=>document.removeEventListener('visibilitychange',pause);},[onTourActiveChange]);
+ const moveTour=step=>{setTourManualFlight(true);setNavigation(null);setTourDone(false);setArrived(false);setTourIndex(i=>Math.max(0,Math.min(stops.length-1,i+step)));};
 
-  // Camera presets
-  const applyCameraPreset = (camPos, targetPos) => {
-    if (controlsRef.current) {
-      controlsRef.current.object.position.set(...camPos);
-      controlsRef.current.target.set(...targetPos);
-      controlsRef.current.update();
-    }
-  };
+ const inspect=(level=floorLevel)=>{onTourActiveChange?.(false);setFloorLevel(level);setCutaway(true);setExploring(false);onExplorationChange?.(false);const y=maitri?1.1:level==='living'?6.5:3;preset(maitri?[0,27,15]:[0,48,24],[0,y,0]);};
+ const walk=()=>{closeTour();setCutaway(false);setViewMode('NORMAL');setExploring(true);onExplorationChange?.(true);};
+ const zoom=f=>{const c=controlsRef.current;if(!c)return;onTourActiveChange?.(false);const offset=c.object.position.clone().sub(c.target).multiplyScalar(f);offset.clampLength(2,140);preset(c.target.clone().add(offset).toArray(),c.target.toArray());};
+ const selectedRoutes=WORKFLOWS[stationSlug].filter(r=>workflow==='all'||workflow===r.id);
+ return <div className="station-workspace">
+  <div className="station-commandbar" aria-label="Three-dimensional view controls">
+   <div className="station-control-group"><span className="station-tool-label">DISPLAY</span>{[['NORMAL','Real'],['THERMAL','Thermal IR'],['XRAY','X-ray']].map(([id,name])=><button key={id} aria-pressed={viewMode===id} onClick={()=>{onTourActiveChange?.(false);setViewMode(id);}}>{name}</button>)}<button aria-pressed={!day} onClick={()=>setDay(v=>!v)}>{day?<Sun/>:<Moon/>}{day?'Daylight':'Polar night'}</button></div>
+   <div className="station-control-group"><span className="station-tool-label">INSPECT</span><button disabled={exploring} aria-pressed={cutaway} onClick={()=>cutaway?(setCutaway(false),preset(overview,target)):inspect()}>Interior cutaway</button>{cutaway&&!maitri&&<><button aria-pressed={floorLevel==='science'} onClick={()=>inspect('science')}>Science / services</button><button aria-pressed={floorLevel==='living'} onClick={()=>inspect('living')}>Living floor</button></>}<button className="station-walk-button" onClick={exploring?leave:walk}><Compass/>{exploring?'Exit spectate':'Spectate'}</button></div>
+   <div className="station-control-group station-camera-tools">{isFullscreen&&<><button disabled={exploring} aria-pressed={isTourActive} onClick={()=>onTourActiveChange?.(!isTourActive)}>{isTourActive?'Pause tour':'Auto tour'}</button><button onClick={onToggleTelemetry}>Telemetry</button></>}<button disabled={exploring} aria-label="Zoom in" onClick={()=>zoom(.8)}><ZoomIn/></button><button disabled={exploring} aria-label="Zoom out" onClick={()=>zoom(1.25)}><ZoomOut/></button><button aria-label="Reset camera" onClick={reset}><RotateCcw/></button><button aria-label={isFullscreen?'Exit fullscreen':'Fullscreen 3D view'} onClick={onToggleFullscreen}>{isFullscreen?<Minimize2/>:<Maximize2/>}</button></div>
+  </div>
+  <div className="station-workflowbar"><span className="station-tool-label">WORKFLOWS</span>{[['none','Off'],['all','All routes'],...WORKFLOWS[stationSlug].map(r=>[r.id,({water:'Water supply',power:'Fuel & power',heat:'Heating loop',logistics:'Cargo & stores'})[r.id]])].map(([id,name])=><button key={id} aria-pressed={workflow===id} onClick={()=>{onTourActiveChange?.(false);setWorkflow(id);}}>{name}</button>)}</div>
+  <div className="station-weatherbar" aria-label="Scene weather simulation"><span className="station-tool-label">WEATHER</span>{WEATHER_OPTIONS.map(([id,label])=><button key={id} aria-pressed={weatherChoice===id} onClick={()=>setWeatherChoice(id)}>{label}</button>)}<span className="station-weather-summary">{weather.temperature.toFixed(0)} °C · {weather.wind.toFixed(0)} km/h · {weather.description}</span>{weatherChoice!=='auto'&&<small>Scene preview · station readings unchanged</small>}</div>
+  <div className="station-render" aria-label={`${stationSlug} explorable station scene`}>
+   <SceneBoundary key={stationSlug} onError={()=>{setExploring(false);onExplorationChange?.(false);}}>
+   <Canvas key={stationSlug} shadows dpr={[1,1.5]} gl={{antialias:true,powerPreference:'high-performance'}} fallback={<div role="alert">Enable browser graphics acceleration to view the station.</div>} onCreated={({gl})=>{gl.toneMapping=THREE.ACESFilmicToneMapping;gl.toneMappingExposure=1.08;gl.outputColorSpace=THREE.SRGBColorSpace;}}>
+    <PerspectiveCamera makeDefault position={overview} fov={48}/>
+    <OrbitControls ref={controlsRef} enabled={!exploring} enableDamping dampingFactor={.09} rotateSpeed={.65} panSpeed={.65} screenSpacePanning zoomToCursor minDistance={1.8} maxDistance={145} zoomSpeed={.65} maxPolarAngle={Math.PI/2-.015} target={target}/>
+    <CameraRig targetPosition={navigation?.position||(tourOpen?tourStop.camPos:cameraTargetPosition)} targetLookAt={navigation?.look||(tourOpen?tourStop.targetPos:cameraTargetLookAt)} waypointTrigger={`${waypointTrigger}-${tourOpen?tourIndex:'manual'}-${navigation?.revision||0}-${flightRevision}`} controlsRef={controlsRef} enabled={!exploring} paused={isModalOpen||(tourOpen&&!isTourActive&&!tourManualFlight)} reducedMotion={reduced} onArrive={()=>{setArrived(true);setTourManualFlight(false);}} onInteraction={()=>{setTourManualFlight(false);onTourActiveChange?.(false);}}/>
 
-  const resetCamera = () => {
-    applyCameraPreset([24, 15, 28], [0, 3, 0]);
-  };
+    <SpectatorModeController enabled={exploring} onExit={leave} site={stationSlug} onHUD={setHud} apiRef={explorerApi} paused={isModalOpen}/>
+    <color attach="background" args={[day?weather.sky:'#071522']}/><fog attach="fog" args={[day?weather.sky:'#071522',day?weather.fog[0]:Math.min(65,weather.fog[0]),day?weather.fog[1]:Math.min(150,weather.fog[1])]}/>
+    <ambientLight intensity={viewMode==='THERMAL'?.3:day?.8:.5} color="#dcecf5"/>
+    <directionalLight position={[-36,48,40]} intensity={viewMode==='THERMAL'?.6:day?weather.sun:.65} color={day?'#fff5df':'#829bd3'} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-far={150} shadow-camera-left={-70} shadow-camera-right={70} shadow-camera-top={70} shadow-camera-bottom={-70}/>
+    <directionalLight position={[15,-8,-15]} intensity={day?.32:.12} color="#c7e4f1"/>
+    <BlizzardParticles snowfall={weather.snowfall} windSpeed={wind} windDirection={direction} isReducedMotion={reduced}/>
+    <Suspense fallback={null}><Model weather={weather} telemetry={telemetry} onSelectHotspot={onSelectHotspot} viewMode={viewMode} isDaylight={day} isModalOpen={isModalOpen} activeSubsystem={activeSubsystem} cutaway={cutaway} floorLevel={floorLevel} workflow={workflow} isExploring={exploring} reducedMotion={reduced}/></Suspense>
+   </Canvas>
+   </SceneBoundary>
+   {tourOpen&&!exploring&&<aside className="station-tour-guide" aria-label="Guided station tour">
+    <div className="station-tour-heading"><span>STATION GUIDE · {String(tourIndex+1).padStart(2,'0')} / {stops.length}</span><button aria-label="Close guided tour" onClick={closeTour}>×</button></div>
+    <h3>{tourStop.title}</h3><p>{tourStop.description}</p><ul>{tourStop.points.map(point=><li key={point}>{point}</li>)}</ul>
+    <div className="station-tour-progress" aria-hidden="true"><span key={`${stationSlug}-${tourIndex}-${arrived}`} style={{animationDuration:`${tourStop.duration}ms`,animationPlayState:isTourActive&&arrived&&!isModalOpen?'running':'paused'}}/></div>
+    <div className="station-tour-actions"><button disabled={tourIndex===0} onClick={()=>moveTour(-1)}>Previous</button><button onClick={()=>{if(tourDone){setTourIndex(0);setTourDone(false);setArrived(false);}onTourActiveChange?.(!isTourActive);}}>{tourDone?'Restart tour':isTourActive?'Pause':'Resume'}</button><button disabled={tourIndex===stops.length-1} onClick={()=>moveTour(1)}>Next</button></div>
+    <small>{tourDone?'Tour complete · Keep exploring or restart':isModalOpen?'Paused while you inspect a sensor':!isTourActive?'Paused · Explore freely, then resume':arrived?'Introducing this stop · Drag the scene to pause':'Moving to the next station stop…'}</small>
+   </aside>}
+   {exploring&&<div className="explorer-overlay">
+    <div className="explorer-location"><span>FREE FLIGHT / {stationSlug.toUpperCase()}</span><strong>{hud.location||'STATION APPROACH'}</strong><span>{hud.coordinates}</span><small>WASD / arrows · Shift boost · Space/E up · Q/Ctrl down · Esc exit</small></div>
+    {hud.locked||hud.fallback?<><div className="explorer-crosshair" aria-hidden="true">+</div><div className="explorer-movement-pad" aria-label="Spectator controls"><small>{hud.fallback?'Drag the scene to look · WASD to move':'WASD to move'}</small>{[['KeyW','Forward'],['KeyA','Left'],['KeyS','Back'],['KeyD','Right'],['Space','Up'],['KeyQ','Down']].map(([key,label])=><button key={key} type="button" onClick={()=>explorerApi.current?.tap(key)} onPointerDown={()=>explorerApi.current?.hold(key)} onPointerUp={()=>explorerApi.current?.release(key)} onPointerLeave={()=>explorerApi.current?.release(key)}>{label}</button>)}<button onClick={leave}>Exit spectate</button></div></>:<div className="explorer-entry"><span>SPECTATOR MODE</span><h3>Fly through the station</h3><p>Fly freely through rooms, structures and terrain. Look around with the mouse or drag the scene.</p>{hud.error&&<p role="alert">{hud.error}</p>}<button id="station-explorer-explicit-entry" onClick={()=>explorerApi.current?.enter()}>Start spectating</button><button onClick={()=>explorerApi.current?.startFallback()}>Use drag-to-look</button><button onClick={leave}>Back to orbit view</button></div>}
+   </div>}
 
-  const zoomIn = () => {
-    if (controlsRef.current) {
-      const controls = controlsRef.current;
-      const cam = controls.object;
-      const target = controls.target;
-      const offset = new THREE.Vector3().subVectors(cam.position, target);
-      if (offset.length() > 4.0) {
-        offset.multiplyScalar(0.78);
-        cam.position.copy(target).add(offset);
-        controls.update();
-      }
-    }
-  };
-
-  const zoomOut = () => {
-    if (controlsRef.current) {
-      const controls = controlsRef.current;
-      const cam = controls.object;
-      const target = controls.target;
-      const offset = new THREE.Vector3().subVectors(cam.position, target);
-      if (offset.length() < 90.0) {
-        offset.multiplyScalar(1.28);
-        cam.position.copy(target).add(offset);
-        controls.update();
-      }
-    }
-  };
-
-  const hudBg = isDark ? 'bg-slate-950/90 border-slate-700/80 text-slate-200' : 'bg-white/95 border-slate-300 text-slate-800 shadow-sm';
-  const hudSubText = isDark ? 'text-slate-400' : 'text-slate-500';
-  const hudValText = isDark ? 'text-white' : 'text-slate-900';
-
-  return (
-    <div className={`relative w-full h-full overflow-hidden select-none transition-colors ${
-      isDaylight ? 'bg-white' : 'bg-[#080d1a]'
-    }`}>
-      {/* 1. TOP-LEFT: HUD Coordinates & Live Katabatic Vector */}
-      <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5 pointer-events-none">
-        <div className={`flex items-center gap-2 px-2.5 py-1 rounded text-xs font-mono border shadow-sm transition-colors ${hudBg}`}>
-          <span className="w-2 h-2 rounded-full bg-sky-500 animate-status-blink" />
-          <span className="font-bold uppercase tracking-wider">
-            {isMaitri ? 'MAITRI DIGITAL TWIN (1989)' : 'BHARATI DIGITAL TWIN (2012)'}
-          </span>
-          <span className={`text-[10px] ${hudSubText}`}>
-            {isMaitri ? '70°45\'58"S 11°44\'09"E' : '69°24\'28"S 76°11\'14"E'}
-          </span>
-        </div>
-
-        {/* Katabatic Vector Pill */}
-        <div className={`flex items-center gap-2 px-2.5 py-1 rounded text-[11px] font-mono border shadow-sm transition-colors ${hudBg}`}>
-          <Wind className="w-3.5 h-3.5 text-sky-500" />
-          <span>
-            KATABATIC STREAM: <span className={`font-bold font-mono-num ${hudValText}`}>{windSpeed.toFixed(1)} km/h</span> @{' '}
-            <span className={`font-bold font-mono-num ${hudValText}`}>{windDirection.toFixed(0)}°</span>
-          </span>
-          {activeIncident === 'BLIZZARD_ALERT' && (
-            <span className="bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold animate-status-blink text-[10px]">
-              GALE ALERT
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* 2. TOP-RIGHT: View Mode, Day/Night Environment & Fullscreen */}
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-        {/* Day / Night 3D Lighting Environment Toggle */}
-        <button
-          onClick={() => setLightingEnv((prev) => (prev === 'DAYLIGHT' ? 'NIGHT' : 'DAYLIGHT'))}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono font-bold transition-all border shadow-sm cursor-pointer ${
-            isDaylight
-              ? 'bg-amber-100 hover:bg-amber-200 border-amber-300 text-amber-900'
-              : 'bg-indigo-950/90 hover:bg-indigo-900 border-indigo-700 text-indigo-200'
-          }`}
-          title={isDaylight ? "Switch to Polar Night Mode" : "Switch to Polar Daylight Mode"}
-        >
-          {isDaylight ? (
-            <>
-              <Sun className="w-3.5 h-3.5 text-amber-600 animate-spin" style={{ animationDuration: '12s' }} />
-              <span>DAYLIGHT</span>
-            </>
-          ) : (
-            <>
-              <Moon className="w-3.5 h-3.5 text-indigo-400" />
-              <span>POLAR NIGHT</span>
-            </>
-          )}
-        </button>
-
-        {/* View Mode Toggle */}
-        <div className={`flex border rounded p-0.5 text-[11px] font-mono shadow-sm transition-colors ${
-          isDark ? 'bg-slate-950/90 border-slate-700' : 'bg-white/95 border-slate-300'
-        }`}>
-          <button
-            onClick={() => setViewMode('NORMAL')}
-            className={`px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer ${
-              viewMode === 'NORMAL'
-                ? isDark ? 'bg-slate-800 text-white font-bold' : 'bg-slate-200 text-slate-900 font-bold'
-                : hudSubText
-            }`}
-            title="Standard Realistic Polar Material Mode"
-          >
-            <Box className="w-3 h-3 text-sky-500" />
-            <span>REAL</span>
-          </button>
-          <button
-            onClick={() => setViewMode('THERMAL')}
-            className={`px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer ${
-              viewMode === 'THERMAL'
-                ? 'bg-purple-950 text-purple-300 font-bold border border-purple-700'
-                : hudSubText
-            }`}
-            title="Thermal Infrared Heat Map Mode"
-          >
-            <Thermometer className="w-3 h-3 text-purple-500" />
-            <span>THERMAL IR</span>
-          </button>
-          <button
-            onClick={() => setViewMode('XRAY')}
-            className={`px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer ${
-              viewMode === 'XRAY'
-                ? 'bg-emerald-950 text-emerald-300 font-bold border border-emerald-700'
-                : hudSubText
-            }`}
-            title="Structural Container Wireframe Mode"
-          >
-            <Layers className="w-3 h-3 text-emerald-500" />
-            <span>X-RAY</span>
-          </button>
-        </div>
-
-        {/* Reset Camera */}
-        <button
-          onClick={resetCamera}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded text-xs font-mono transition-colors shadow-sm cursor-pointer ${
-            isDark
-              ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-200'
-              : 'bg-white/95 hover:bg-slate-100 border-slate-300 text-slate-800'
-          }`}
-          title="Reset Camera to Overview"
-        >
-          <Eye className="w-3.5 h-3.5 text-sky-500" />
-          <span>RESET</span>
-        </button>
-
-        {/* Fullscreen Toggle */}
-        <button
-          onClick={onToggleFullscreen}
-          className={`p-1.5 border rounded transition-colors shadow-sm cursor-pointer ${
-            isDark
-              ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-              : 'bg-white/95 hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900'
-          }`}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen 3D View'}
-        >
-          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
-      </div>
-
-      {/* 3. FLOATING CAMERA ZOOM & ORBIT CONTROLS (Right-Side Toolbar) */}
-      <div className="absolute top-14 right-3 z-10 flex flex-col gap-1.5 items-end">
-        <div className={`flex flex-col border rounded p-1 shadow-md gap-1 transition-colors ${
-          isDark ? 'bg-slate-950/90 border-slate-700' : 'bg-white/95 border-slate-300'
-        }`}>
-          <button
-            onClick={zoomIn}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${
-              isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-800'
-            }`}
-            title="Zoom In (Scroll Wheel Up)"
-          >
-            <ZoomIn className="w-4 h-4 text-sky-500" />
-          </button>
-          <button
-            onClick={zoomOut}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${
-              isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-800'
-            }`}
-            title="Zoom Out (Scroll Wheel Down)"
-          >
-            <ZoomOut className="w-4 h-4 text-sky-500" />
-          </button>
-          <div className={`h-[1px] my-0.5 ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
-          <button
-            onClick={resetCamera}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${
-              isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-800'
-            }`}
-            title="Reset Camera Orientation"
-          >
-            <RotateCcw className="w-4 h-4 text-amber-500" />
-          </button>
-        </div>
-
-        {/* Scroll Wheel Hint Pill */}
-        <div className={`hidden sm:flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border shadow-xs pointer-events-none transition-colors ${
-          isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-white/90 border-slate-200 text-slate-600'
-        }`}>
-          <span>↕ Scroll: Zoom • Drag: Orbit</span>
-        </div>
-      </div>
-
-      {/* 4. Three.js Canvas */}
-      <Canvas shadows>
-        <PerspectiveCamera makeDefault position={[24, 15, 28]} fov={45} />
-
-        {/* OrbitControls with buttery-smooth free scrolling, orbiting, and panning */}
-        <OrbitControls
-          ref={controlsRef}
-          enableDamping
-          dampingFactor={0.06}
-          minDistance={1.8}
-          maxDistance={125.0}
-          enableZoom={true}
-          zoomSpeed={1.4}
-          enableRotate={true}
-          rotateSpeed={0.85}
-          enablePan={true}
-          panSpeed={1.0}
-          screenSpacePanning={true}
-          maxPolarAngle={Math.PI / 2 - 0.02} // Constrain camera above the ground plane
-          target={[0, 3, 0]}
-        />
-
-        {/* Dynamic Smooth Camera Rig for Waypoint Transitions */}
-        <CameraRig
-          targetPosition={cameraTargetPosition}
-          targetLookAt={cameraTargetLookAt}
-          waypointTrigger={waypointTrigger}
-          controlsRef={controlsRef}
-        />
-
-        {/* Polar Daylight or Polar Night Sky Canvas Background */}
-        <color attach="background" args={[isDaylight ? '#ffffff' : '#080d1a']} />
-
-        {/* Atmospheric Polar Fog */}
-        <fog attach="fog" args={[isDaylight ? '#ffffff' : '#080d1a', isDaylight ? 45 : 30, isDaylight ? 100 : 85]} />
-
-        {/* Ambient & High Polar Albedo Lighting */}
-        <ambientLight
-          intensity={viewMode === 'THERMAL' ? 0.25 : (isDaylight ? 0.95 : 0.45)}
-          color={isDaylight ? '#f0f9ff' : '#e0f2fe'}
-        />
-
-        {/* Harsh Low-Angle Antarctic Sun */}
-        <directionalLight
-          position={[-22, 28, 25]}
-          intensity={viewMode === 'THERMAL' ? 0.6 : (isDaylight ? 2.3 : 1.3)}
-          color={isDaylight ? '#fffef2' : '#fffbeb'}
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
-          shadow-camera-far={95}
-          shadow-camera-left={-32}
-          shadow-camera-right={32}
-          shadow-camera-top={32}
-          shadow-camera-bottom={-32}
-        />
-
-        {/* Ice / Snow Surface Diffuse Upward Bounce Light */}
-        <directionalLight
-          position={[15, -8, -15]}
-          intensity={isDaylight ? 0.65 : 0.3}
-          color={isDaylight ? '#e0f2fe' : '#38bdf8'}
-        />
-
-        {/* Dynamic Blizzard / Katabatic Snow Drift Particles */}
-        <BlizzardParticles windSpeed={windSpeed} />
-
-        {/* 3D Station Twins with Real-Time Connected Unit House Piping */}
-        <Suspense fallback={null}>
-          {isMaitri ? (
-            <MaitriModel
-              telemetry={telemetry}
-              onSelectHotspot={onSelectHotspot}
-              viewMode={viewMode}
-              isDaylight={isDaylight}
-              isModalOpen={isModalOpen}
-              activeSubsystem={activeSubsystem}
-            />
-          ) : (
-            <BharatiModel
-              telemetry={telemetry}
-              onSelectHotspot={onSelectHotspot}
-              viewMode={viewMode}
-              isDaylight={isDaylight}
-              isModalOpen={isModalOpen}
-              activeSubsystem={activeSubsystem}
-            />
-          )}
-        </Suspense>
-      </Canvas>
-    </div>
-  );
+  </div>
+  {viewMode==='THERMAL'&&<div className="station-thermal-key"><span>SCHEMATIC THERMAL VIEW</span><strong>Cool surfaces → warm plant / heat recovery</strong><small>Color indicates equipment heat state, not a measured surface-temperature image.</small></div>}
+  <div className="station-fieldnotes"><span>{maitri?'70.7658° S / 11.7358° E':'69.4078° S / 76.1872° E'} · Wind {wind.toFixed(1)} km/h @ {direction.toFixed(0)}°</span><span>{exploring?'WASD · Shift boost · Space/E up · Q/Ctrl down · Esc exit':'Drag to orbit · Right-drag to pan · Scroll gently to zoom · Click a sensor'}</span></div>
+  {selectedRoutes.length>0&&<div className="station-route-legend" aria-live="polite">{selectedRoutes.map(r=><div key={r.id}><strong style={{borderLeftColor:r.color}}>{r.name}</strong><small className="station-flow-key">{({logistics:'➜ Green ground arrows · cargo movement',water:'● Blue flowing packets · water supply',power:'━ Amber fuel transfer · gold electrical pulses',heat:'━ Orange warm supply · blue cool return'})[r.id]}</small><span>{stationSlug==='bharati'&&r.id==='power'?'Annual ship refuel → ':''}{r.labels.join(' → ')}</span></div>)}</div>}
+  <details className="station-source-note station-sensor-list"><summary>Live sensor diagnostics</summary><div>{[['POWER_CHP','Power / generation'],['BATTERY_STORAGE','Battery / UPS'],['FUEL_STORAGE','Fuel depot'],[maitri?'WATER_INTAKE':'HVAC_GLYCOL',maitri?'Water intake':'Glycol / heat recovery'],['WEATHER','Weather station'],['STRUCTURAL_HEALTH','Structure']].map(([code,label])=><button key={code} onClick={()=>onSelectHotspot?.(code)}>{label}</button>)}</div></details>
+  <details className="station-source-note"><summary>Model references & scale</summary><p>Station form and facilities follow NCPOR descriptions and the Bharati operation and maintenance tender. Room positions and nearby infrastructure are interpreted for exploration; this is not a surveyed floor plan. Outlying routes are compressed to keep the site navigable.</p><a href="https://ncpor.res.in/pages/view/260/256-maitri" target="_blank" rel="noreferrer">NCPOR Maitri</a> · <a href="https://ncpor.res.in/upload/tenders/OMRC_Tender_Document_20220113%20(1).PDF" target="_blank" rel="noreferrer">Bharati facilities document</a></details>
+ </div>;
 }

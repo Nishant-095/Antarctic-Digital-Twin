@@ -31,13 +31,13 @@ export function ThemeProvider({ children }) {
     if (theme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
-      document.body.style.backgroundColor = '#0b0f19';
-      document.body.style.color = '#f1f5f9';
+      document.body.style.backgroundColor = 'var(--paper)';
+      document.body.style.color = 'var(--ink)';
     } else {
       root.classList.add('light');
       root.classList.remove('dark');
-      document.body.style.backgroundColor = '#ffffff';
-      document.body.style.color = '#000000';
+      document.body.style.backgroundColor = 'var(--paper)';
+      document.body.style.color = 'var(--ink)';
     }
   }, [theme]);
 

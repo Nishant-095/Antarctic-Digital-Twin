@@ -1,5 +1,6 @@
-import React from 'react';
+import React, {useState} from 'react';
 import { X, Cpu, Gauge, Sliders } from 'lucide-react';
+import useDialogFocus from '../hooks/useDialogFocus';
 import { useTheme } from '../context/ThemeContext';
 
 export default function SubsystemDetailModal({
@@ -10,6 +11,9 @@ export default function SubsystemDetailModal({
   onTriggerCommand,
 }) {
   const { isDark } = useTheme();
+  const [refreshState,setRefreshState]=useState(null);
+  const [isRefreshing,setIsRefreshing]=useState(false);
+  const dialogRef=useDialogFocus(Boolean(subsystemCode),onClose);
   if (!subsystemCode) return null;
 
   const isMaitri = stationSlug === 'maitri';
@@ -19,8 +23,8 @@ export default function SubsystemDetailModal({
   const sub = subsystems.find((s) => s.code === subsystemCode) || {
     code: subsystemCode,
     name: subsystemCode.replace('_', ' '),
-    status: 'NOMINAL',
-    description: 'Antarctic Mission Subsystem Telemetry Module',
+    status: 'UNAVAILABLE',
+    description: 'No subsystem snapshot is available yet.',
   };
 
   const sensors = sub.sensors || [];
@@ -34,7 +38,7 @@ export default function SubsystemDetailModal({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 select-none animate-fadeIn">
-      <div className={`w-full max-w-xl border rounded shadow-2xl flex flex-col max-h-[90vh] overflow-hidden transition-colors ${modalBg}`}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Subsystem sensor diagnostics" className={`w-full max-w-xl border rounded shadow-2xl flex flex-col max-h-[90vh] overflow-hidden transition-colors ${modalBg}`}>
         {/* Header */}
         <div className={`p-4 border-b flex items-center justify-between transition-colors ${headerBg}`}>
           <div className="flex items-center gap-3">
@@ -46,11 +50,7 @@ export default function SubsystemDetailModal({
                 <h3 className={`text-sm font-bold uppercase tracking-wider ${isDark ? 'text-white' : 'text-black'}`}>
                   {sub.name}
                 </h3>
-                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
-                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-200 border-slate-300 text-black font-bold'
-                }`}>
-                  {sub.code}
-                </span>
+
               </div>
               <p className={`text-xs mt-0.5 ${subText}`}>
                 {isMaitri ? 'Maitri Research Station' : 'Bharati Research Station'} • Diagnostic Hotspot
@@ -58,6 +58,7 @@ export default function SubsystemDetailModal({
             </div>
           </div>
           <button
+            aria-label="Close subsystem sensor diagnostics"
             onClick={onClose}
             className={`p-1.5 rounded transition-colors cursor-pointer ${
               isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
@@ -100,18 +101,14 @@ export default function SubsystemDetailModal({
             <div className="flex items-center justify-between mb-2">
               <span className={`font-semibold uppercase text-xs tracking-wider flex items-center gap-1.5 ${isDark ? 'text-slate-200' : 'text-black'}`}>
                 <Gauge className="w-3.5 h-3.5 text-sky-500" />
-                Live Sensor Channel Readings
+                Simulated sensor readings
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  LIVE STREAM 1.5s
+                  SIMULATED
                 </span>
-                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
-                  isDark ? 'text-emerald-400 bg-emerald-950 border-emerald-800' : 'text-emerald-900 bg-emerald-100 border-emerald-300 font-bold'
-                }`}>
-                  CALIBRATED
-                </span>
+
               </div>
             </div>
 
@@ -174,46 +171,27 @@ export default function SubsystemDetailModal({
             </div>
           </div>
 
-          {/* Remote Telecommand Actions */}
-          <div className={`p-3 border rounded space-y-2 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-            <span className={`font-semibold uppercase text-[10px] tracking-wider block flex items-center gap-1.5 ${isDark ? 'text-slate-300' : 'text-black'}`}>
-              <Sliders className="w-3.5 h-3.5 text-amber-500" />
-              Direct Remote Telecommand
-            </span>
+          <div className={`p-3 border rounded space-y-2 ${innerCardBg}`}>
+            <h3 className="font-semibold text-xs">Diagnostic actions</h3>
+            <p className="text-xs">Refresh requests the current simulator snapshot. Hardware calibration is not connected.</p>
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  onTriggerCommand?.(`PING_${subsystemCode}`);
-                  alert(`Remote command dispatched: Diagnostic Ping to ${subsystemCode}. Response: ACK 200 OK.`);
-                }}
-                className={`px-3 py-1.5 rounded font-medium text-xs transition-colors border cursor-pointer ${
-                  isDark
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    : 'bg-white hover:bg-slate-100 text-black border-slate-300 shadow-xs'
-                }`}
-              >
-                Diagnostic Ping Loop
-              </button>
-              <button
-                onClick={() => {
-                  onTriggerCommand?.(`CYCLE_${subsystemCode}`);
-                  alert(`Remote command dispatched: Calibration Cycle initiated for ${subsystemCode}.`);
-                }}
-                className={`px-3 py-1.5 rounded font-medium text-xs transition-colors border cursor-pointer ${
-                  isDark
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    : 'bg-white hover:bg-slate-100 text-black border-slate-300 shadow-xs'
-                }`}
-              >
-                Trigger Self-Calibration
-              </button>
+              <button aria-disabled={isRefreshing} aria-busy={isRefreshing} className="desk-primary" onClick={async()=>{
+                if(isRefreshing)return;
+                setIsRefreshing(true);setRefreshState(null);
+                try {await onTriggerCommand?.('REFRESH');setRefreshState('Sensor snapshot refreshed.');}
+                catch {setRefreshState('Refresh failed. Check the connection and retry.');}
+                finally {setIsRefreshing(false);}
+              }}>{isRefreshing?'Refreshing…':'Refresh sensor readings'}</button>
+              <button disabled className="desk-link">Hardware calibration unavailable</button>
             </div>
+            {refreshState&&<p role="status" className="text-xs">{refreshState}</p>}
           </div>
         </div>
 
         {/* Footer */}
         <div className={`p-3 border-t flex justify-end transition-colors ${headerBg}`}>
           <button
+            aria-label="Close subsystem sensor diagnostics"
             onClick={onClose}
             className={`px-4 py-1.5 rounded font-medium text-xs transition-colors cursor-pointer ${
               isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'

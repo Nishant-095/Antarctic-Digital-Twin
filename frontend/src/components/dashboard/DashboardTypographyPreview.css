@@ -1,0 +1,22 @@
+/* Review trial: set this to 1 to restore the original dashboard typography.
+   The class is absent on the digital twin, including its shared dialogs. */
+.dashboard-type-preview { --dashboard-type-scale: 1.1; }
+
+/* Utility-sized text in the dashboard's shared sensor and alerts dialogs. */
+.dashboard-type-preview .text-xs { font-size: calc(.75rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview .text-sm { font-size: calc(.875rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview .text-base { font-size: calc(1rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview .text-lg { font-size: calc(1.125rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview .text-xl { font-size: calc(1.25rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview .text-2xl { font-size: calc(1.5rem * var(--dashboard-type-scale)); }
+.dashboard-type-preview [class~="text-[9px]"] { font-size: calc(9px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [class~="text-[10px]"] { font-size: calc(10px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [class~="text-[11px]"] { font-size: calc(11px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [class~="text-[12px]"] { font-size: calc(12px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [class~="text-[13px]"] { font-size: calc(13px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [role="dialog"] .text-xs { font-size: calc(13px * var(--dashboard-type-scale)); }
+.dashboard-type-preview [role="dialog"] :is([class~="text-[10px]"], [class~="text-[11px]"]) { font-size: calc(12px * var(--dashboard-type-scale)); }
+
+/* Recharts supplies these sizes as presentation attributes or inline styles. */
+.dashboard-type-preview .recharts-cartesian-axis-tick-value { font-size: calc(11px * var(--dashboard-type-scale)); }
+.dashboard-type-preview .recharts-default-tooltip { font-size: calc(12px * var(--dashboard-type-scale)) !important; }

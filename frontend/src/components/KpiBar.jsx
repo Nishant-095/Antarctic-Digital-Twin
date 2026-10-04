@@ -38,7 +38,7 @@ export default function KpiBar({
   const subBorder = isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-black font-medium';
 
   return (
-    <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 p-3 border-b transition-colors ${
+    <div className={`operations-kpis grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 p-3 border-b transition-colors ${
       isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'
     }`}>
       {/* 1. POWER OUTPUT */}
@@ -59,6 +59,7 @@ export default function KpiBar({
 
       {/* 2. BESS & BATTERY STORAGE */}
       <div
+        role="button" tabIndex={0} onKeyDown={e => {if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectSubsystem?.('BATTERY_STORAGE');}}}
         onClick={() => onSelectSubsystem?.('BATTERY_STORAGE')}
         className={`border rounded p-2.5 flex flex-col justify-between transition-colors cursor-pointer hover:border-emerald-500/80 ${cardBg}`}
         title="Click to view full BESS Battery Storage diagnostics"
@@ -175,6 +176,7 @@ export default function KpiBar({
 
       {/* 6. ACTIVE ALERTS / OPERATIONAL STATUS */}
       <div
+        role="button" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenAlerts?.();}}}
         onClick={onOpenAlerts}
         className={`cursor-pointer rounded p-2.5 flex flex-col justify-between transition-colors border ${
           alertCount > 0
